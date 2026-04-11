@@ -5,6 +5,7 @@ from google import genai
 from google.genai import types
 from wrapper import NutritionWrapper
 from pydantic import BaseModel, Field
+from supabase import create_client
 
 script_path = os.path.dirname(os.path.abspath(__file__))
 config_path = os.path.join(script_path, "config.yaml")
@@ -15,6 +16,10 @@ with open(config_path, "r") as file:
 
 gemini_key = config['keys']['gemini']
 calories_ninjas_key = config['keys']['calories_ninjas']
+supabase_url = config['keys']['supabase_url']
+supabase_key = config['keys']['supabase_key']
+
+supabase = create_client(supabase_url, supabase_key)
 
 class FoodMacros(BaseModel):
     name: str = Field(description="Name of the food")
@@ -82,5 +87,15 @@ if __name__ == "__main__":
             print(f"Carbs: {final_result.carbs}g")
             print(f"Protein: {final_result.protein}g")
             print(f"Fat: {final_result.fat}g")
+
+            supabase.table("meals").insert({
+                "image_url": image_path,
+                "status": "analyzed",
+                "total_calories": final_result.calories,
+                "total_carbs": final_result.carbs,
+                "total_protein": final_result.protein,
+                "total_fat": final_result.fat
+            }).execute()
+            print("Saved to Supabase database.")
     else:
         print("Could not find nutrition data for food image")
