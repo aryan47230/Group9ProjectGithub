@@ -5,16 +5,21 @@ from google import genai
 from google.genai import types
 from wrapper import NutritionWrapper
 from pydantic import BaseModel, Field
+from supabase import create_client
 
 script_path = os.path.dirname(os.path.abspath(__file__))
 config_path = os.path.join(script_path, "config.yaml")
-image_path = os.path.join(script_path, "test_food.jpeg")
+image_path = os.path.join(script_path, "test_food_2.jpg")
 
 with open(config_path, "r") as file:
     config = yaml.safe_load(file)
 
 gemini_key = config['keys']['gemini']
 calories_ninjas_key = config['keys']['calories_ninjas']
+supabase_url = config['keys']['supabase_url']
+supabase_key = config['keys']['supabase_key']
+
+supabase = create_client(supabase_url, supabase_key)
 
 class FoodMacros(BaseModel):
     name: str = Field(description="Name of the food")
@@ -34,13 +39,14 @@ def food_analyzer(image_path: str):
     2. Do not use fractions or decimals (use 8 oz instead of 1/2 lb)
     3. Do not use ranges (use '1' instead of '1-2')
     4. Do not use slashes (use 'ketchup' instead of 'ketchup/sauce')
+    5. Ensure mention whether grains, pastas or rice are cooked (10 oz cooked pastas)
     Output example: '1 bun, 8 oz beef patty, 1 slice cheese, 2 tbspn ketchup, 3 slices pickle, 1 leaf lettuce'.
     """
     print(f"Sending {image_path} to LLM for analysis")
 
     try:
         response = client.models.generate_content(
-        model='gemini-2.5-flash',
+        model='gemini-3-flash-preview',
         contents=[image, prompt],
         config=types.GenerateContentConfig(
             temperature=0.0,
@@ -53,7 +59,8 @@ def food_analyzer(image_path: str):
         print(f"LLM error {e}")
         return None
 
-if __name__ == "__main__":
+
+def backend_call(image_path):
     result = food_analyzer(image_path)
     
     if result:
@@ -82,5 +89,23 @@ if __name__ == "__main__":
             print(f"Carbs: {final_result.carbs}g")
             print(f"Protein: {final_result.protein}g")
             print(f"Fat: {final_result.fat}g")
+
+            supabase.table("meals").insert({
+                "image_url": image_path,
+                "status": "analyzed",
+                "total_calories": final_result.calories,
+                "total_carbs": final_result.carbs,
+                "total_protein": final_result.protein,
+                "total_fat": final_result.fat
+            }).execute()
+            print("Saved to Supabase database.")
+            return final_result
     else:
         print("Could not find nutrition data for food image")
+
+def get_history() -> list:
+    history = supabase.table("meals").select("*").order("created_at", desc = True).execute()
+    return history.data
+
+if __name__ == "__main__":
+    backend_call(image_path)
